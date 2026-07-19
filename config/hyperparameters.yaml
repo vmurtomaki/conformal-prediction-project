@@ -1,0 +1,4 @@
+﻿# Centralized configuration file storing alpha, gamma, bootstrap counts, and model parameters.
+alpha: 0.10
+gamma: 0.05
+bootstrap_estimators: 30
