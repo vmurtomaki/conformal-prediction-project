@@ -1,0 +1,5 @@
+.venv/
+data/01_raw/*
+data/02_processed/*
+__pycache__/
+.pytest_cache/
