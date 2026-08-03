@@ -1,7 +1,0 @@
-﻿scikit-learn
-mapie
-pandas
-streamlit
-plotly
-altair
-pytest

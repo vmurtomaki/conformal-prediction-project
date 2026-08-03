@@ -1,11 +1,11 @@
-﻿import pandas as pd
+﻿import joblib
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 from sklearn.metrics import mean_absolute_error
-import joblib
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
+
 
 def split_time_series(df: pd.DataFrame, train_ratio: float = 0.8):
-    """Splits time series data strictly chronologically."""
     split_idx = int(len(df) * train_ratio)
     train = df.iloc[:split_idx]
     test = df.iloc[split_idx:]
@@ -16,14 +16,11 @@ def split_time_series(df: pd.DataFrame, train_ratio: float = 0.8):
     return X_train, X_test, y_train, y_test
 
 def train_base_model(X_train: pd.DataFrame, y_train: pd.Series):
-    """Trains a RandomForest utilizing TimeSeriesSplit cross-validation."""
     print("Initializing TimeSeriesSplit cross-validation...")
     tscv = TimeSeriesSplit(n_splits=3)
     
-    # Random Forests are highly stable and capture non-linear covariate relationships
     rf = RandomForestRegressor(random_state=42, n_jobs=-1)
     
-    # Parameter grid for RandomizedSearchCV
     param_grid = {
         'n_estimators': [100, 200],
         'max_depth': [10, 20, None],
@@ -34,7 +31,7 @@ def train_base_model(X_train: pd.DataFrame, y_train: pd.Series):
     search = RandomizedSearchCV(
         estimator=rf,
         param_distributions=param_grid,
-        n_iter=5, # Kept low for execution speed; increase for production
+        n_iter=5, 
         cv=tscv,
         scoring='neg_mean_absolute_error',
         random_state=42,
@@ -58,7 +55,6 @@ if __name__ == "__main__":
     
     best_model = train_base_model(X_train, y_train)
     
-    # Evaluate statically to establish a baseline MAE before applying MAPIE
     preds = best_model.predict(X_test)
     mae = mean_absolute_error(y_test, preds)
     print(f"Baseline Test MAE (Point Forecast): {mae:.2f}")

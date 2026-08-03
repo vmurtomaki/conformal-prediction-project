@@ -1,68 +1,130 @@
-﻿import streamlit as st
-import pandas as pd
+﻿import copy
+import sys
+from pathlib import Path
+
+# Fix path for 'src' module discovery when running via Streamlit
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+import joblib
+import streamlit as st
 from visualizations import plot_conformal_intervals
 
-# Must be the first Streamlit command
-st.set_page_config(page_title="Conformal Forecasting", layout="wide")
+from src.conformal_engine import calibrate_mapie_model, run_conformal_inference
+from src.data_processing import (
+    apply_synthetic_shock,
+    create_features,
+    load_and_clean_data,
+    resample_and_impute,
+)
 
-@st.cache_data
-def load_data():
-    # Using a relative path assuming the app is run from the project root
-    return pd.read_parquet("data/02_processed/conformal_results.parquet")
+st.set_page_config(page_title="Dynamic Conformal Forecasting", layout="wide")
 
-def main():
+@st.cache_resource(show_spinner="Orchestrating Base Engine Operations...")
+def initialize_system():
+    """
+    Executes intensive I/O operations and model calibration precisely once per session.
+    Caches the complex MAPIE object to prevent severe latency degradation.
+    """
+    raw_df = load_and_clean_data("data/01_raw/LD2011_2014.txt")
+    processed_df = resample_and_impute(raw_df)
+    
+    # Isolate continuous 1D timeline to facilitate future leakage-free shock injection
+    raw_target_series = processed_df['MT_320']
+    
+    df_ml = create_features(processed_df, "MT_320")
+    train_ratio = 0.8
+    split_idx = int(len(df_ml) * train_ratio)
+    train = df_ml.iloc[:split_idx]
+    
+    X_train = train.drop(columns=['target'])
+    y_train = train['target']
+    
+    base_model = joblib.load("data/02_processed/base_model.pkl")
+    
+    cached_mapie = calibrate_mapie_model(base_model, X_train, y_train, n_blocks=30)
+    test_start_date = df_ml.index[split_idx]
+    
+    return cached_mapie, raw_target_series, test_start_date
+
+def main() -> None:
     st.title("Probabilistic Time Series Forecasting")
     st.markdown("### Enterprise Uncertainty Quantification via Conformal Prediction")
     
     try:
-        df = load_data()
-    except FileNotFoundError:
-        st.error("Conformal results not found. Please run src/conformal_engine.py first.")
+        cached_mapie, raw_target_series, test_start_date = initialize_system()
+    except Exception as e:  # noqa: BLE001
+        st.error(f"Framework Initialization Failure: {e!s}")
         return
 
-    # Sidebar Controls
-    st.sidebar.header("Dashboard Controls")
-    st.sidebar.markdown("Filter the test set window to observe local coverage.")
+    st.sidebar.header("Algorithmic Optimization Controls")
     
-    # Date filtering
-    min_date, max_date = df.index.min().date(), df.index.max().date()
-    start_date = st.sidebar.date_input("Start Date", min_date, min_value=min_date, max_value=max_date)
-    end_date = st.sidebar.date_input("End Date", max_date, min_value=min_date, max_value=max_date)
-    
-    mask = (df.index.date >= start_date) & (df.index.date <= end_date)
-    filtered_df = df.loc[mask]
+    # Enforce execution barrier to neutralize UI thread locking
+    with st.sidebar.form("conformal_config"):
+        st.markdown("**Risk Tolerance Limits (Alpha)**")
+        alpha_val = st.slider("Target Miscoverage Rate", min_value=0.01, max_value=0.50, value=0.10, step=0.01)
+        
+        st.markdown("**Algorithmic Reactivity (Gamma)**")
+        gamma_val = st.slider("Adaptive Step Size", min_value=0.00, max_value=0.20, value=0.05, step=0.01)
+        
+        st.markdown("---")
+        st.markdown("**Synthetic Exogenous Shock Simulator**")
+        min_date, max_date = test_start_date.date(), raw_target_series.index.max().date()
+        shock_start = st.date_input("Shock Start Vector", value=min_date, min_value=min_date, max_value=max_date)
+        shock_end = st.date_input("Shock End Vector", value=max_date, min_value=min_date, max_value=max_date)
+        shock_multiplier = st.number_input("Demand Modification Scale", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+        
+        submitted = st.form_submit_button("Execute Probabilistic Inference")
 
-    if filtered_df.empty:
-        st.warning("No data selected in this date range.")
+    if not submitted:
+        st.info("👈 System active. Define exogenous parameters and engage the inference loop.")
         return
 
-    # Calculate live metrics
-    # Empirical coverage: % of time true value falls within bounds
-    is_covered = (filtered_df['true_value'] >= filtered_df['lower_bound']) & \
-                 (filtered_df['true_value'] <= filtered_df['upper_bound'])
+    with st.spinner("Processing dynamic temporal equations..."):
+        # Deep copy operation prevents global mutation of the cached residual matrices
+        working_model = copy.deepcopy(cached_mapie)
+        
+        # Apply shock multiplier to the unbroken series prior to topological extraction
+        shocked_df = apply_synthetic_shock(
+            raw_target_series, 
+            'MT_320',
+            float(shock_multiplier), 
+            str(shock_start), 
+            str(shock_end)
+        )
+        
+        df_ml = create_features(shocked_df, "MT_320")
+        
+        test_df = df_ml.loc[df_ml.index >= test_start_date].tail(1500)
+        X_test = test_df.drop(columns=['target'])
+        y_test = test_df['target']
+        
+        results_df = run_conformal_inference(
+            working_model, 
+            X_test, 
+            y_test, 
+            base_alpha=alpha_val, 
+            gamma=gamma_val, 
+            step_size=168
+        )
+
+    is_covered = (results_df['true_value'] >= results_df['lower_bound']) & \
+                 (results_df['true_value'] <= results_df['upper_bound'])
     empirical_coverage = is_covered.mean()
+    mean_width = (results_df['upper_bound'] - results_df['lower_bound']).mean()
     
-    mean_width = (filtered_df['upper_bound'] - filtered_df['lower_bound']).mean()
-    
-    # KPI Dashboard
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Target Confidence Level", "90.00%")
+        st.metric("Defined Confidence Threshold", f"{(1 - alpha_val):.2%}")
     with col2:
-        delta_cov = empirical_coverage - 0.90
-        st.metric("Empirical Coverage", f"{empirical_coverage:.2%}", f"{delta_cov:+.2%}")
+        delta_cov = empirical_coverage - (1 - alpha_val)
+        st.metric("Realized Empirical Coverage", f"{empirical_coverage:.2%}", f"{delta_cov:+.2%}")
     with col3:
-        st.metric("Mean Interval Width", f"{mean_width:.2f}")
+        st.metric("Average Boundary Width", f"{mean_width:.2f}")
 
     st.markdown("---")
     
-    # Visualization
-    fig = plot_conformal_intervals(filtered_df)
+    fig = plot_conformal_intervals(results_df, shock_start, shock_end, float(shock_multiplier))
     st.plotly_chart(fig, use_container_width=True)
-
-    # Raw Data Expander
-    with st.expander("View Raw Conformal Output"):
-        st.dataframe(filtered_df)
 
 if __name__ == "__main__":
     main()
