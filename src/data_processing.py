@@ -16,7 +16,10 @@ def load_and_clean_data(filepath: str) -> pd.DataFrame:
 
 def resample_and_impute(df: pd.DataFrame) -> pd.DataFrame:
     df_hourly = df.resample('h').sum()
-    df_hourly = df_hourly.interpolate(method='time')
+    # FIX: Replaced time-based interpolation with forward fill.
+    # Time interpolation across the global index leaks future values into 
+    # historical training and calibration matrices, violating disjoint set rules.
+    df_hourly = df_hourly.ffill()
     return df_hourly
 
 def apply_synthetic_shock(

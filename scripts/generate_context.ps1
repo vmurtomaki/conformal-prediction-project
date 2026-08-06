@@ -18,7 +18,7 @@ function ShouldIncludeContent($File) {
     )
     $ExcludeNames = @(
         '.gitignore', '.python-version', 'uv.lock', 'llm_context.txt', 
-        'generate_context.ps1', 'CACHEDIR.TAG'
+        'generate_context.ps1', 'CACHEDIR.TAG', '.coverage'
     )
 
     if ($ExcludeExtensions -contains $File.Extension.ToLower()) { return $false }
@@ -27,8 +27,8 @@ function ShouldIncludeContent($File) {
 }
 
 function Get-Tree($CurrentDir, $Indent) {
-    # Tailored exclusions for Conformal_Prediction_Project
-    $ExcludeDirs = @('.git', '.venv', '__pycache__', 'data', '.pytest_cache')
+    # Added '.ruff_cache' to avoid reading binary cache files
+    $ExcludeDirs = @('.git', '.venv', '__pycache__', 'data', '.pytest_cache', '.mypy_cache', '.ruff_cache')
 
     $Dirs = Get-ChildItem -Path $CurrentDir.FullName -Directory | 
             Where-Object { $_.Name -notin $ExcludeDirs }
@@ -76,7 +76,8 @@ if ($LargeFilesFound) {
 
 Write-Host "Compiling context payload..." -ForegroundColor Cyan
 foreach ($File in $Script:FilesToInclude) {
-    $RelativePath = $File.FullName.Replace($RootDir, "").TrimStart("\").TrimStart("/").Replace("\", "/")
+    # Slightly optimized string replacement for pathing
+    $RelativePath = $File.FullName.Substring($RootDir.Length).TrimStart("\", "/").Replace("\", "/")
     [void]$Output.AppendLine("<file path=`"$RelativePath`">")
     try {
         $Content = (Get-Content -Path $File.FullName -Raw -Encoding UTF8).Trim()
