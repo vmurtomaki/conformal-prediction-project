@@ -9,6 +9,7 @@ import joblib
 import streamlit as st
 from visualizations import plot_conformal_intervals
 
+from src.config import load_config
 from src.conformal_engine import calibrate_mapie_model, run_conformal_inference
 from src.data_processing import (
     apply_synthetic_shock,
@@ -19,8 +20,12 @@ from src.data_processing import (
 
 st.set_page_config(page_title="Dynamic Conformal Forecasting", layout="wide")
 
+# Load centralized hyperparameter configuration
+CONFIG = load_config()
+
+# Pass the parameter into the function so Streamlit binds the cache to the config value.
 @st.cache_resource(show_spinner="Orchestrating Base Engine Operations...")
-def initialize_system():
+def initialize_system(bootstrap_estimators: int):
     """
     Executes intensive I/O operations and model calibration precisely once per session.
     Caches the complex MAPIE object to prevent severe latency degradation.
@@ -41,7 +46,10 @@ def initialize_system():
     
     base_model = joblib.load("data/02_processed/base_model.pkl")
     
-    cached_mapie = calibrate_mapie_model(base_model, X_train, y_train, n_blocks=30)
+    # The cache is now bound to the parameter. If updated in YAML, it will rebuild.
+    cached_mapie = calibrate_mapie_model(
+        base_model, X_train, y_train, n_blocks=bootstrap_estimators
+    )
     test_start_date = df_ml.index[split_idx]
     
     return cached_mapie, raw_target_series, test_start_date
@@ -51,7 +59,8 @@ def main() -> None:
     st.markdown("### Enterprise Uncertainty Quantification via Conformal Prediction")
     
     try:
-        cached_mapie, raw_target_series, test_start_date = initialize_system()
+        # Pass the config parameter dynamically to bind the cache state
+        cached_mapie, raw_target_series, test_start_date = initialize_system(CONFIG["bootstrap_estimators"])
     except Exception as e:  # noqa: BLE001
         st.error(f"Framework Initialization Failure: {e!s}")
         return
@@ -61,10 +70,16 @@ def main() -> None:
     # Enforce execution barrier to neutralize UI thread locking
     with st.sidebar.form("conformal_config"):
         st.markdown("**Risk Tolerance Limits (Alpha)**")
-        alpha_val = st.slider("Target Miscoverage Rate", min_value=0.01, max_value=0.50, value=0.10, step=0.01)
+        alpha_val = st.slider(
+            "Target Miscoverage Rate", min_value=0.01, max_value=0.50, 
+            value=CONFIG["alpha"], step=0.01
+        )
         
         st.markdown("**Algorithmic Reactivity (Gamma)**")
-        gamma_val = st.slider("Adaptive Step Size", min_value=0.00, max_value=0.20, value=0.05, step=0.01)
+        gamma_val = st.slider(
+            "Adaptive Step Size", min_value=0.00, max_value=0.20, 
+            value=CONFIG["gamma"], step=0.01
+        )
         
         st.markdown("---")
         st.markdown("**Synthetic Exogenous Shock Simulator**")
