@@ -6,6 +6,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import joblib
+import numpy as np
+import pandas as pd
 import streamlit as st
 from visualizations import plot_conformal_intervals
 
@@ -30,11 +32,21 @@ def initialize_system(bootstrap_estimators: int):
     Executes intensive I/O operations and model calibration precisely once per session.
     Caches the complex MAPIE object to prevent severe latency degradation.
     """
-    raw_df = load_and_clean_data("data/01_raw/LD2011_2014.txt")
-    processed_df = resample_and_impute(raw_df)
-    
-    # Isolate continuous 1D timeline to facilitate future leakage-free shock injection
-    raw_target_series = processed_df['MT_320']
+    # 1. Fallback for Data Ingestion on Cold Clones
+    data_path = Path("data/01_raw/LD2011_2014.txt")
+    if not data_path.exists():
+        st.warning("Local raw data not found. Bootstrapping synthetic continuous demand matrix for demonstration.")
+        dates = pd.date_range(start="2023-01-01", periods=2000, freq="h")
+        raw_target_series = pd.Series(
+            np.sin(np.linspace(0, 100, 2000)) * 50 + 100 + np.random.normal(0, 5, 2000), 
+            index=dates, 
+            name="MT_320"
+        )
+        processed_df = raw_target_series.to_frame()
+    else:
+        raw_df = load_and_clean_data(str(data_path))
+        processed_df = resample_and_impute(raw_df)
+        raw_target_series = processed_df['MT_320']
     
     df_ml = create_features(processed_df, "MT_320")
     train_ratio = 0.8
@@ -44,7 +56,15 @@ def initialize_system(bootstrap_estimators: int):
     X_train = train.drop(columns=['target'])
     y_train = train['target']
     
-    base_model = joblib.load("data/02_processed/base_model.pkl")
+    # 2. Fallback for Model Ingestion on Cold Clones
+    model_path = Path("data/02_processed/base_model.pkl")
+    if not model_path.exists():
+        from sklearn.ensemble import RandomForestRegressor
+        st.warning("Pre-trained base model not found. Initializing default RandomForestRegressor.")
+        base_model = RandomForestRegressor(n_estimators=10, random_state=42)
+        base_model.fit(X_train, y_train)
+    else:
+        base_model = joblib.load(model_path)
     
     # The cache is now bound to the parameter. If updated in YAML, it will rebuild.
     cached_mapie = calibrate_mapie_model(
@@ -53,6 +73,7 @@ def initialize_system(bootstrap_estimators: int):
     test_start_date = df_ml.index[split_idx]
     
     return cached_mapie, raw_target_series, test_start_date
+
 
 def main() -> None:
     st.title("Probabilistic Time Series Forecasting")
@@ -109,7 +130,9 @@ def main() -> None:
         
         df_ml = create_features(shocked_df, "MT_320")
         
-        test_df = df_ml.loc[df_ml.index >= test_start_date].tail(1500)
+        # Rigorously cap testing extraction limit to prevent memory bloat
+        MAX_INFERENCE_ROWS = 1500
+        test_df = df_ml.loc[df_ml.index >= test_start_date].tail(MAX_INFERENCE_ROWS)
         X_test = test_df.drop(columns=['target'])
         y_test = test_df['target']
         

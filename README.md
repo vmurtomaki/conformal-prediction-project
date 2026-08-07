@@ -1,74 +1,84 @@
 ﻿# Probabilistic Time Series Forecasting with Conformal Prediction
 
-## Overview
+Enterprise-style Streamlit app for distribution-free uncertainty quantification on time series, using EnbPI and Adaptive Conformal Inference (ACI) on top of the MAPIE framework. Includes a live Coverage Metric Dashboard for real-time validation of theoretical guarantees.
 
-This repository implements an advanced probabilistic time series forecasting pipeline utilizing Conformal Prediction. By leveraging Ensemble Batch Prediction Intervals (EnbPI) and Adaptive Conformal Inference (ACI), the pipeline generates distribution-free, mathematically guaranteed prediction intervals that dynamically adapt to real-world volatility and concept drift.
+## Why This Approach
 
-The core mathematical guarantee provided is the marginal coverage:
+Standard forecasting models capture data uncertainty but ignore model uncertainty, producing fragile confidence intervals. Conformal prediction fixes this with model-agnostic prediction regions that carry a mathematically guaranteed marginal coverage rate, computed from conformity scores on a calibration set — independent of the base learner's assumptions.
 
-$$P(y \in \Gamma_{1-\alpha}(x)) \ge 1 - \alpha$$
+- **EnbPI (Ensemble Batch Prediction Intervals):** Time series break the exchangeability assumption standard conformal methods rely on. EnbPI uses block bootstrapping and leave-one-out ensemble aggregation to produce robust residuals while preserving chronological order, enabling sliding-window updates during live inference.
+- **ACI (Adaptive Conformal Inference):** Handles non-stationarity and concept drift by tracking empirical coverage in real time and adjusting the significance level via gradient-descent stochastic approximation. Consecutive miscoverage events widen the intervals (via the gamma learning rate) so the system recovers from shocks automatically.
 
-## Architecture
+## Dataset
 
-Built on a strict, modern Python enterprise standard:
+Built around the UCI Electricity Load Diagrams dataset, targeting volatile client profiles.
 
-* **Environment & Lockfile:** Managed deterministically via `uv` (Rust-based).
-* **Modeling Engine:** Scikit-learn integrated with the `mapie` framework for robust conformal wrapping and block bootstrapping.
-* **UI/UX Deployment:** Fully interactive Streamlit dashboard allowing real-time simulated interventions and risk-tolerance adjustments.
-* **Static Analysis:** Aggressive linting and formatting via `Ruff`; strict static type checking via `MyPy`.
+| Feature | Detail |
+|---|---|
+| Domain & Granularity | Portuguese client panel data, hourly resampled |
+| Primary Complexity | High dimensionality, volatile client behavior |
+| Data Quality Nuances | DST anomalies handled via continuous spline imputation |
 
-## Directory Structure
+## Implementation
 
-```text
-Conformal_Prediction_Project/
-├── uv.lock                 # Deterministic dependency graph
-├── pyproject.toml          # Declarative configuration
-├── Makefile                # Orchestration commands
-├── app/                    # Interactive UI layer
-│   ├── main.py             # Streamlit application
-│   └── visualizations.py   # Plotly/Altair charting
-├── config/                 # Centralized hyperparameters
-├── src/                    # Core pipeline modules
-│   ├── config.py           # Config loader
-│   ├── conformal_engine.py # MAPIE, EnbPI, and ACI logic
-│   ├── data_processing.py  # Resampling and feature engineering
-│   └── main.py             # CLI execution entry point
-├── tests/                  # Pytest suite validating mathematical bounds
-└── Dockerfile              # Containerization instructions
-```
+Powered by `MapieTimeSeriesRegressor`, wrapping standard Scikit-Learn regressors. Partial fitting runs continuously during inference, so the model updates its residual matrices as ground truth is revealed sequentially — producing narrower, more precise intervals over time.
 
-## Quick Start
+## Roadmap
 
-This project requires **Python 3.12+** and **uv**. The virtual environment is provisioned and managed automatically.
+1. **Environment:** Deterministic dependency locking via `uv`.
+2. **Data pipeline:** Temporal resampling, imputation, lag feature extraction.
+3. **Model tuning:** Sequential `TimeSeriesSplit` cross-validation.
+4. **Conformal layer:** EnbPI block bootstrap + residual generation.
+5. **Adaptive tuning:** ACI step-size calibration for interval reactivity.
+6. **Deployment:** Streamlit dashboard, live metrics, containerization.
 
-1. **Install uv:**
+## Folder Structure
+
+| Path | Purpose |
+|---|---|
+| `data/01_raw/` | Immutable original data; keeps the pipeline reproducible |
+| `src/conformal_engine.py` | Isolated MAPIE/bootstrapping logic |
+| `app/main.py` | Presentation layer — UI routing and state |
+| `config/hyperparameters.yaml` | Centralized hyperparameters for CI/CD experimentation |
+
+## Quick Start & Execution
+
+Requires **Python 3.12+**. Uses [`uv`](https://astral.sh/uv) for deterministic dependency management and virtual environment isolation.
+
+### 1. Environment bootstrap
 
 ```bash
+# Install uv if not already present
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-2. **Clone & Sync:**
-
-```bash
-git clone <repo_url> && cd Conformal_Prediction_Project
+# Sync the locked environment (includes dev/test dependencies)
 uv sync --all-extras --dev
 ```
 
-3. **Execute Pipeline:**
+### 2. Validation & static analysis
 
 ```bash
-# Run the test suite
+# Run the full test suite
 make test
 
-# Launch the interactive scenario simulator
+# Run type checking and linting
+make lint
+```
+
+### 3. Launch the dashboard
+
+```bash
 uv run streamlit run app/main.py
 ```
 
-## Technical Roadmap & Known Limitations
+If the raw UCI data files aren't present locally, the app falls back to a synthetic autoregressive dataset automatically.
 
-To maintain prototyping velocity and inference speed, specific theoretical trade-offs were made. These establish the roadmap for productionization:
+## Limitations (v1.0)
 
-* **Absence of Exact Conditional Coverage:** The pipeline guarantees marginal coverage over the dataset but cannot mathematically guarantee finite-sample conditional coverage without strict parametric assumptions. Localized coverage gaps may occasionally occur during severe volatility.
-* **Sub-optimal Interval Efficiency:** The current methodology relies on absolute residual nonconformity scores, producing symmetric prediction intervals. Future iterations will integrate Conformalized Quantile Regression (CQR) to dynamically adapt interval widths to localized variance.
-* **Statistical Inefficiency via Data Splitting:** The EnbPI block bootstrapping framework inherently reduces the effective training volume provided to the base estimator. More computationally expensive cross-conformal techniques (CV+, Jackknife+) were deliberately bypassed to ensure real-time inference speed.
-* **Lack of Conformal Risk Control (CRC):** The system does not currently bound specific asymmetric operational risks or monotonic loss functions, limiting immediate applicability in highly risk-averse environments where controlling asymmetric costs supersedes generalized marginal coverage.
+Trade-offs made to prioritize rapid prototyping and deployment. These define the roadmap for v2.0:
+
+* **Batched ACI:** True ACI updates the target quantile after every observation. This engine batches inference in user-defined chunks instead — the gradient shift is computed per-timestep internally but applied per-block — trading micro-level reactivity for lower latency and no UI freezing.
+* **Symmetric residuals:** EnbPI currently uses absolute residuals, giving symmetric intervals. Since electrical demand variance is non-linear, v2.0 will move to Conformalized Quantile Regression (CQR) with asymmetric pinball loss for local heteroscedasticity.
+* **Monolithic inference coupling:** Inference runs synchronously in the presentation thread; a deep-copy guards the cached conformity scores from mutation. v2.0 will decouple this into a stateless microservice to remove UI-thread memory overhead.
+* **Static block bootstrap:** Block size is currently hardcoded. Future versions will select it dynamically from the series' autocorrelation function to avoid breaking long-range dependencies.
+* **Topological test coverage gap:** CI validates ACI bound validity (no inversion), but doesn't yet assert chronological expansion rates within a chunk — only endpoint validity. Closing this gap is next.
