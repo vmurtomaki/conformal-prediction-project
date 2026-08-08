@@ -1,5 +1,53 @@
-.venv/
+# ===================================================
+# 1. Text & Documentation
+# ===================================================
+*.txt
+
+# ===================================================
+# 2. Data & ML Models
+# ===================================================
+# Keeps heavy datasets and serialized models out of Git history
+*.parquet
+*.csv
+*.pkl
+
+# Ignore everything in data directories EXCEPT .gitkeep files
+# (This preserves the folder structure for your app to run correctly)
 data/01_raw/*
+!data/01_raw/.gitkeep
 data/02_processed/*
+!data/02_processed/.gitkeep
+
+# ===================================================
+# 3. Python & Virtual Environments
+# ===================================================
 __pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# ===================================================
+# 4. Tooling & Caches
+# ===================================================
 .pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.uv/
+
+# ===================================================
+# 5. Jupyter Notebooks
+# ===================================================
+.ipynb_checkpoints/
+
+# ===================================================
+# 6. OS & IDE Files
+# ===================================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
