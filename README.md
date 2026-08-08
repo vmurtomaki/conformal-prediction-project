@@ -1,84 +1,62 @@
 ﻿# Probabilistic Time Series Forecasting with Conformal Prediction
 
-Enterprise-style Streamlit app for distribution-free uncertainty quantification on time series, using EnbPI and Adaptive Conformal Inference (ACI) on top of the MAPIE framework. Includes a live Coverage Metric Dashboard for real-time validation of theoretical guarantees.
+A production-minded analytical pipeline that wraps any Scikit-Learn regressor with **distribution-free, mathematically guaranteed uncertainty bounds** — turning point forecasts into actionable risk ranges for volatile demand signals.
 
-## Why This Approach
+> [!NOTE]
+> _Add a screenshot of the Streamlit dashboard here, e.g._ `![Dashboard Preview](docs/screenshot.png)`
 
-Standard forecasting models capture data uncertainty but ignore model uncertainty, producing fragile confidence intervals. Conformal prediction fixes this with model-agnostic prediction regions that carry a mathematically guaranteed marginal coverage rate, computed from conformity scores on a calibration set — independent of the base learner's assumptions.
+## Overview & Impact
 
-- **EnbPI (Ensemble Batch Prediction Intervals):** Time series break the exchangeability assumption standard conformal methods rely on. EnbPI uses block bootstrapping and leave-one-out ensemble aggregation to produce robust residuals while preserving chronological order, enabling sliding-window updates during live inference.
-- **ACI (Adaptive Conformal Inference):** Handles non-stationarity and concept drift by tracking empirical coverage in real time and adjusting the significance level via gradient-descent stochastic approximation. Consecutive miscoverage events widen the intervals (via the gamma learning rate) so the system recovers from shocks automatically.
+- **Quantifies forecast risk, not just the forecast.** Produces prediction intervals with a guaranteed marginal coverage rate, independent of the base model's assumptions — critical for demand planning and capacity decisions.
+- **Handles non-stationary, shock-prone series.** Adaptive Conformal Inference (ACI) automatically widens or tightens intervals in response to real-time coverage drift, so the system self-corrects after volatility events instead of silently degrading.
+- **Built for sequential, live inference.** The conformal layer (EnbPI) updates its residual matrices as new ground truth arrives, preserving chronological order rather than relying on the exchangeability assumptions standard conformal methods require.
+- **Interactive validation, not just a static report.** A Streamlit dashboard exposes live empirical coverage vs. the target confidence level, letting a stakeholder stress-test the model against a synthetic demand shock in real time.
 
-## Dataset
+## Tech Stack
 
-Built around the UCI Electricity Load Diagrams dataset, targeting volatile client profiles.
+`Python 3.12`, `Streamlit`, `MAPIE`, `Scikit-Learn`, `Pandas`, `NumPy`, `Plotly`, `uv`, `Docker`, `Pytest`, `Ruff`, `mypy`
 
-| Feature | Detail |
-|---|---|
-| Domain & Granularity | Portuguese client panel data, hourly resampled |
-| Primary Complexity | High dimensionality, volatile client behavior |
-| Data Quality Nuances | DST anomalies handled via continuous spline imputation |
+## Engineering Rigor
 
-## Implementation
+- **Deterministic environments:** dependency resolution and installs are locked via `uv` (`uv.lock`), with the identical `uv sync --frozen` flow used in both local development and the Docker image — eliminating "works on my machine" drift.
+- **Automated quality gates:** `Ruff` for linting/formatting and `mypy` for static typing are wired into the `Makefile`, alongside a `Pytest` suite (with coverage reporting) that isolates and regression-tests the core conformal math, not just the UI.
+- **Config-driven experimentation:** hyperparameters (`alpha`, `gamma`, bootstrap block count) are centralized in `config/hyperparameters.yaml` and loaded through a single typed accessor, keeping tuning out of application code and CI/CD-friendly.
 
-Powered by `MapieTimeSeriesRegressor`, wrapping standard Scikit-Learn regressors. Partial fitting runs continuously during inference, so the model updates its residual matrices as ground truth is revealed sequentially — producing narrower, more precise intervals over time.
+## Quick Start
 
-## Roadmap
+```bash
+# 1. Install uv (deterministic dependency manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-1. **Environment:** Deterministic dependency locking via `uv`.
-2. **Data pipeline:** Temporal resampling, imputation, lag feature extraction.
-3. **Model tuning:** Sequential `TimeSeriesSplit` cross-validation.
-4. **Conformal layer:** EnbPI block bootstrap + residual generation.
-5. **Adaptive tuning:** ACI step-size calibration for interval reactivity.
-6. **Deployment:** Streamlit dashboard, live metrics, containerization.
+# 2. Clone and sync the locked environment
+git clone <repo-url> && cd Conformal_Prediction_Project
+uv sync --all-extras --dev
 
-## Folder Structure
+# 3. Launch the dashboard
+uv run streamlit run app/main.py
+```
+_No local dataset or pre-trained model? The app falls back to a synthetic demand series automatically, so it runs out of the box on a cold clone._
+
+## Project Architecture
+
+```
+Ingestion (data_processing.py) → Feature Engineering (lags, rolling stats)
+        → Base Model Training (model_training.py, TimeSeriesSplit CV)
+        → Conformal Calibration (conformal_engine.py — EnbPI + ACI)
+        → Presentation Layer (app/main.py, Streamlit UI + live metrics)
+```
 
 | Path | Purpose |
 |---|---|
-| `data/01_raw/` | Immutable original data; keeps the pipeline reproducible |
-| `src/conformal_engine.py` | Isolated MAPIE/bootstrapping logic |
-| `app/main.py` | Presentation layer — UI routing and state |
-| `config/hyperparameters.yaml` | Centralized hyperparameters for CI/CD experimentation |
+| `src/data_processing.py` | Ingestion, resampling, imputation, feature extraction |
+| `src/model_training.py` | Base regressor training and hyperparameter search |
+| `src/conformal_engine.py` | EnbPI calibration and per-timestep ACI inference |
+| `src/config.py` | Centralized hyperparameter loading |
+| `app/` | Streamlit UI, controls, and visualizations |
+| `tests/` | Pytest coverage for conformal math and data integrity |
 
-## Quick Start & Execution
+## Trade-offs & Roadmap
 
-Requires **Python 3.12+**. Uses [`uv`](https://astral.sh/uv) for deterministic dependency management and virtual environment isolation.
-
-### 1. Environment bootstrap
-
-```bash
-# Install uv if not already present
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Sync the locked environment (includes dev/test dependencies)
-uv sync --all-extras --dev
-```
-
-### 2. Validation & static analysis
-
-```bash
-# Run the full test suite
-make test
-
-# Run type checking and linting
-make lint
-```
-
-### 3. Launch the dashboard
-
-```bash
-uv run streamlit run app/main.py
-```
-
-If the raw UCI data files aren't present locally, the app falls back to a synthetic autoregressive dataset automatically.
-
-## Limitations (v1.0)
-
-Trade-offs made to prioritize rapid prototyping and deployment. These define the roadmap for v2.0:
-
-* **Batched ACI:** True ACI updates the target quantile after every observation. This engine batches inference in user-defined chunks instead — the gradient shift is computed per-timestep internally but applied per-block — trading micro-level reactivity for lower latency and no UI freezing.
-* **Symmetric residuals:** EnbPI currently uses absolute residuals, giving symmetric intervals. Since electrical demand variance is non-linear, v2.0 will move to Conformalized Quantile Regression (CQR) with asymmetric pinball loss for local heteroscedasticity.
-* **Monolithic inference coupling:** Inference runs synchronously in the presentation thread; a deep-copy guards the cached conformity scores from mutation. v2.0 will decouple this into a stateless microservice to remove UI-thread memory overhead.
-* **Static block bootstrap:** Block size is currently hardcoded. Future versions will select it dynamically from the series' autocorrelation function to avoid breaking long-range dependencies.
-* **Topological test coverage gap:** CI validates ACI bound validity (no inversion), but doesn't yet assert chronological expansion rates within a chunk — only endpoint validity. Closing this gap is next.
+- **Batched-chunk inference vs. true per-observation ACI:** the alpha update math runs per-timestep internally but is applied to the model in fixed-size chunks, trading a small amount of reactivity for lower latency and a UI that doesn't freeze on every observation.
+- **Symmetric residual intervals:** EnbPI currently uses absolute residuals, producing symmetric bounds. Given non-linear variance in the target signal, the planned v2.0 move is Conformalized Quantile Regression (CQR) for asymmetric, heteroscedasticity-aware intervals.
+- **Synchronous inference coupling:** inference currently runs in the Streamlit presentation thread (guarded by a deep copy of cached conformity scores). Decoupling this into a stateless inference service is the next architectural step to remove UI-thread memory overhead.
