@@ -113,3 +113,70 @@ def test_aci_updates_within_chunk_not_only_between_chunks() -> None:
 
     assert not results.empty
     assert (results['lower_bound'] <= results['upper_bound']).all()
+    
+class _StubModel:
+    def __init__(self, lower, upper):
+        self._lower = lower
+        self._upper = upper
+        self.confidence_levels_used = []
+
+    def predict(self, X_chunk, ensemble, confidence_level, optimize_beta):
+        self.confidence_levels_used.append(confidence_level)
+        n = len(X_chunk)
+        pis = np.zeros((n, 2, 1))
+        pis[:, 0, 0] = self._lower
+        pis[:, 1, 0] = self._upper
+        return np.zeros(n), pis
+
+    def update(self, X_chunk, y_chunk):
+        pass
+
+
+def test_aci_updates_per_timestep_not_per_chunk():
+    """
+    Pins the bug described in the README: alpha must accumulate one update
+    per individual timestep inside a chunk (Gibbs & Candes 2021), not a
+    single update per chunk based on the chunk's aggregate error rate.
+    Because the per-timestep update is linear, applying it n times differs
+    from a naive single-update-per-chunk implementation by a factor of n —
+    this is exactly the "two orders of magnitude less reactive at
+    step_size=168" bug described in the README. A fixed interval and a
+    chunk with a mix of covered/uncovered points makes the two formulas
+    diverge, observable via the confidence_level passed into the *next*
+    chunk's predict call.
+    """
+    dates = pd.date_range("2023-01-01", periods=10, freq="h")
+    X_test = pd.DataFrame({"f": np.zeros(10)}, index=dates)
+    y_chunk1 = np.array([0.0, 0.0, 5.0, -5.0, 5.0])  # interval fixed [-1, 1]: 3 misses, 2 covers
+    y_test = pd.Series(np.concatenate([y_chunk1, np.zeros(5)]), index=dates)
+
+    # Small gamma keeps both candidate alphas inside [0.01, 0.99] so the
+    # comparison isn't masked by clipping.
+    base_alpha, gamma, step_size = 0.10, 0.02, 5
+    stub = _StubModel(lower=-1.0, upper=1.0)
+
+    run_conformal_inference(
+        working_model=stub, X_test=X_test, y_test=y_test,
+        base_alpha=base_alpha, gamma=gamma, step_size=step_size,
+    )
+
+    # Correct: alpha accumulates gamma*(base_alpha - err_t) once per point.
+    expected_alpha = base_alpha
+    for y in y_chunk1:
+        err = 0.0 if -1.0 <= y <= 1.0 else 1.0
+        expected_alpha += gamma * (base_alpha - err)
+    expected_conf = float(np.clip(1.0 - np.clip(expected_alpha, 0.01, 0.99), 0.01, 0.99))
+
+    # Wrong: a single update per chunk using the aggregate error rate,
+    # with no per-timestep accumulation (missing the factor-of-n reactivity).
+    mean_err = np.mean([0.0 if -1.0 <= y <= 1.0 else 1.0 for y in y_chunk1])
+    wrong_alpha = base_alpha + gamma * (base_alpha - mean_err)
+    wrong_conf = float(np.clip(1.0 - np.clip(wrong_alpha, 0.01, 0.99), 0.01, 0.99))
+
+    assert expected_conf != pytest.approx(wrong_conf, abs=1e-6), (
+        "Test setup error: correct and buggy alpha formulas coincide — "
+        "not a valid regression guard."
+    )
+
+    second_call_conf = stub.confidence_levels_used[1]
+    assert second_call_conf == pytest.approx(expected_conf, abs=1e-9)

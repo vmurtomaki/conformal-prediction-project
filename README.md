@@ -1,9 +1,8 @@
-﻿# Adaptive Conformal Forecasting
+# Adaptive Conformal Forecasting
 
 Distribution-free prediction intervals for volatile time series, with an adaptive layer that recalibrates as the series shifts regime.
 
 ![Dashboard Preview](docs/screenshot.png)
-<!-- TODO: capture screenshot -->
 
 ## The problem
 
@@ -36,10 +35,11 @@ On 1,500 held-out hours at a target of 90% coverage:
 | | Empirical coverage | Mean interval width |
 |---|---|---|
 | Static conformal (γ = 0) | 92.7% | baseline |
-| Adaptive (γ = 0.05) | 89.6% | __% narrower |
-<!-- TODO: fill width reduction from scripts/compute_width_reduction.py -->
+| Adaptive (γ = 0.01) | 89.9% | 7.5% narrower |
 
 The static baseline over-covers by 2.7 points. That sounds harmless, but over-coverage is paid for in width — an interval wider than it needs to be is a capacity decision that costs money for no added safety. The adaptive layer tracks the target to within 0.4 points and buys back that width.
+
+Gamma isn't free to increase for more reactivity, though: sweeping it against the real dataset shows a stability cliff. Below ~0.03, width reduction is positive and grows as gamma shrinks (10.9% at γ=0.005, 7.5% at γ=0.01). Above ~0.03, the update starts overshooting after miscoverage events — coverage still tracks near the 90% target, but mean width inflates sharply (a γ=0.05 run that looked promising on coverage alone actually produced 47% *wider* intervals than static). γ = 0.01 was chosen as the default after this sweep, trading a slightly lower peak reduction for a stable operating point.
 
 **The bug that made this real.** The first working version applied the ACI update once per 168-hour prediction chunk, using the chunk's aggregate error rate. That is not Adaptive Conformal Inference — it's a coarse approximation of it, and at a step size of 168 the adaptation was roughly two orders of magnitude less reactive than the Gibbs & Candès (2021) formulation intends. Predictions are still batched per chunk for latency, but the alpha update now runs per individual timestep inside each chunk, with a regression test pinning that behavior.
 

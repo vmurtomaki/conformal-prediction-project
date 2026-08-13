@@ -13,7 +13,7 @@ uv run mypy src/ app/
 
 # 4. Confirm config.py actually loads hyperparameters.yaml
 uv run python -c "from src.config import load_config; print(load_config())"
-# expect: {'alpha': 0.1, 'gamma': 0.05, 'bootstrap_estimators': 30}
+# expect: {'alpha': 0.1, 'gamma': 0.01, 'bootstrap_estimators': 30}
 
 # 5. Confirm the per-timestep ACI update behaves sanely on a quick synthetic run
 # (Using PowerShell Here-String piped into Python)

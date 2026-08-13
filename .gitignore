@@ -51,3 +51,5 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+gitleaks-report.json
