@@ -1,4 +1,4 @@
-![CI](https://github.com/vmurtomaki/Conformal_Prediction_Project/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/vmurtomaki/conformal-prediction-project/actions/workflows/ci.yml/badge.svg)
 
 # Adaptive Conformal Forecasting
 
