@@ -1,3 +1,5 @@
+![CI](https://github.com/vmurtomaki/Conformal_Prediction_Project/actions/workflows/ci.yml/badge.svg)
+
 # Adaptive Conformal Forecasting
 
 Distribution-free prediction intervals for volatile time series, with an adaptive layer that recalibrates as the series shifts regime.
