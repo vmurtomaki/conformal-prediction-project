@@ -26,16 +26,19 @@ st.set_page_config(page_title="Dynamic Conformal Forecasting", layout="wide")
 CONFIG = load_config()
 
 # Pass the parameter into the function so Streamlit binds the cache to the config value.
-@st.cache_resource(show_spinner="Orchestrating Base Engine Operations...")
+@st.cache_resource(show_spinner="Loading data and calibrating model...")
 def initialize_system(bootstrap_estimators: int):
     """
-    Executes intensive I/O operations and model calibration precisely once per session.
-    Caches the complex MAPIE object to prevent severe latency degradation.
+    Loads the data and calibrates the MAPIE model once per session.
+
+    Cached because calibration is the slow step; the cache key is
+    bootstrap_estimators, so changing it in the YAML rebuilds the model.
+    Returns (calibrated model, raw target series, test-set start timestamp).
     """
     # 1. Fallback for Data Ingestion on Cold Clones
     data_path = Path("data/01_raw/LD2011_2014.txt")
     if not data_path.exists():
-        st.warning("Local raw data not found. Bootstrapping synthetic continuous demand matrix for demonstration.")
+        st.warning("Raw data not found. Using a synthetic demand series so the app runs on a cold clone.")
         dates = pd.date_range(start="2023-01-01", periods=2000, freq="h")
         raw_target_series = pd.Series(
             np.sin(np.linspace(0, 100, 2000)) * 50 + 100 + np.random.normal(0, 5, 2000), 
@@ -60,9 +63,8 @@ def initialize_system(bootstrap_estimators: int):
     model_path = Path("data/02_processed/base_model.pkl")
     if not model_path.exists():
         from sklearn.ensemble import RandomForestRegressor
-        st.warning("Pre-trained base model not found. Initializing default RandomForestRegressor.")
+        st.warning("Trained base model not found. Fitting a default RandomForestRegressor.")
         base_model = RandomForestRegressor(n_estimators=10, random_state=42)
-        base_model.fit(X_train, y_train)
     else:
         base_model = joblib.load(model_path)
     
@@ -77,49 +79,47 @@ def initialize_system(bootstrap_estimators: int):
 
 def main() -> None:
     st.title("Probabilistic Time Series Forecasting")
-    st.markdown("### Enterprise Uncertainty Quantification via Conformal Prediction")
+    st.markdown("### Distribution-free prediction intervals for volatile time series")
     
     try:
         # Pass the config parameter dynamically to bind the cache state
         cached_mapie, raw_target_series, test_start_date = initialize_system(CONFIG["bootstrap_estimators"])
     except Exception as e:  # noqa: BLE001
-        st.error(f"Framework Initialization Failure: {e!s}")
+        st.error(f"Initialization failed: {e!s}")
         return
-
-    st.sidebar.header("Algorithmic Optimization Controls")
+    st.sidebar.header("Model Parameters")
     
-    # Enforce execution barrier to neutralize UI thread locking
+    # A form defers reruns until submit, so moving a slider doesn't trigger inference
     with st.sidebar.form("conformal_config"):
-        st.markdown("**Risk Tolerance Limits (Alpha)**")
+        st.markdown("**Target miscoverage (alpha)**")
         alpha_val = st.slider(
             "Target Miscoverage Rate", min_value=0.01, max_value=0.50, 
             value=CONFIG["alpha"], step=0.01
         )
         
-        st.markdown("**Algorithmic Reactivity (Gamma)**")
+        st.markdown("**ACI step size (gamma)**")
         gamma_val = st.slider(
             "Adaptive Step Size", min_value=0.00, max_value=0.20, 
             value=CONFIG["gamma"], step=0.01
         )
         
         st.markdown("---")
-        st.markdown("**Synthetic Exogenous Shock Simulator**")
+        st.markdown("**Synthetic demand shock**")
         min_date, max_date = test_start_date.date(), raw_target_series.index.max().date()
-        shock_start = st.date_input("Shock Start Vector", value=min_date, min_value=min_date, max_value=max_date)
-        shock_end = st.date_input("Shock End Vector", value=max_date, min_value=min_date, max_value=max_date)
-        shock_multiplier = st.number_input("Demand Modification Scale", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
+        shock_start = st.date_input("Shock Start Date", value=min_date, min_value=min_date, max_value=max_date)
+        shock_end = st.date_input("Shock End Date", value=max_date, min_value=min_date, max_value=max_date)
+        shock_multiplier = st.number_input("Demand Multiplier", min_value=0.1, max_value=5.0, value=1.0, step=0.1)
         
-        submitted = st.form_submit_button("Execute Probabilistic Inference")
-
+        submitted = st.form_submit_button("Run Forecast")
     if not submitted:
-        st.info("👈 System active. Define exogenous parameters and engage the inference loop.")
+        st.info("👈 Set the parameters in the sidebar, then run the forecast.")
         return
-
-    with st.spinner("Processing dynamic temporal equations..."):
-        # Deep copy operation prevents global mutation of the cached residual matrices
+    with st.spinner("Running inference..."):
+        # Deep copy: run_conformal_inference calls update(), which mutates the
+        # cached model's conformity scores and would leak across sessions.
         working_model = copy.deepcopy(cached_mapie)
         
-        # Apply shock multiplier to the unbroken series prior to topological extraction
+        # Apply shock multiplier to evaluation series before interval calculation.
         shocked_df = apply_synthetic_shock(
             raw_target_series, 
             'MT_320',
@@ -130,7 +130,7 @@ def main() -> None:
         
         df_ml = create_features(shocked_df, "MT_320")
         
-        # Rigorously cap testing extraction limit to prevent memory bloat
+        # Cap evaluation window to prevent high memory usage.
         MAX_INFERENCE_ROWS = 1500
         test_df = df_ml.loc[df_ml.index >= test_start_date].tail(MAX_INFERENCE_ROWS)
         X_test = test_df.drop(columns=['target'])
@@ -152,12 +152,12 @@ def main() -> None:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Defined Confidence Threshold", f"{(1 - alpha_val):.2%}")
+        st.metric("Target coverage", f"{(1 - alpha_val):.2%}")
     with col2:
         delta_cov = empirical_coverage - (1 - alpha_val)
-        st.metric("Realized Empirical Coverage", f"{empirical_coverage:.2%}", f"{delta_cov:+.2%}")
+        st.metric("Empirical coverage", f"{empirical_coverage:.2%}", f"{delta_cov:+.2%}")
     with col3:
-        st.metric("Average Boundary Width", f"{mean_width:.2f}")
+        st.metric("Mean interval width", f"{mean_width:.2f}")
 
     st.markdown("---")
     
