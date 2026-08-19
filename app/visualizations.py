@@ -9,12 +9,13 @@ def plot_conformal_intervals(
     shock_start: date, 
     shock_end: date, 
     shock_multiplier: float,
-    title: str = "Enterprise Energy Demand Projection via Conformal Bounds"
+    title: str = "Energy demand forecast with conformal prediction intervals"
 ) -> go.Figure:
     """
-    Synthesizes a reactive multi-dimensional visual layout. 
-    Programmatically layers dynamic confidence limits beneath absolute system metrics 
-    while identifying exogenous algorithmic shocks visually.
+    Plots historical series, point forecast, and adaptive conformal prediction intervals.
+
+    Expects df to carry true_value, prediction, lower_bound, upper_bound on a
+    DatetimeIndex. Shades the shock window only when shock_multiplier != 1.0.
     """
     fig = go.Figure()
 
@@ -32,21 +33,21 @@ def plot_conformal_intervals(
         fill='tonexty',
         fillcolor='rgba(0, 176, 246, 0.2)',
         line={"width": 0},
-        name='Dynamic Confidence Limit'
+        name='Prediction interval'
     ))
 
     fig.add_trace(go.Scatter(
         x=df.index, y=df['true_value'],
         mode='lines',
         line={"color": 'black', "width": 1},
-        name='Validated Ground Truth'
+        name='Observed'
     ))
 
     fig.add_trace(go.Scatter(
         x=df.index, y=df['prediction'],
         mode='lines',
         line={"color": 'rgba(255, 127, 14, 1)', "width": 2, "dash": 'dot'},
-        name='Point Projection'
+        name='Point forecast'
     ))
 
     if shock_multiplier != 1.0:
@@ -63,15 +64,15 @@ def plot_conformal_intervals(
                 opacity=0.5, 
                 layer="below", 
                 line_width=0,
-                annotation_text=f"Volatile Shock Factor: {shock_multiplier}x", 
+                annotation_text=f"Shock multiplier: {shock_multiplier}x", 
                 annotation_position="top left",
                 annotation_font_color="red"
             )
 
     fig.update_layout(
         title=title,
-        xaxis_title="Chronological Dimension",
-        yaxis_title="Aggregate Energy Output (kWh)",
+        xaxis_title="Time",
+        yaxis_title="Energy Demand (kWh)",
         template="plotly_white",
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1}

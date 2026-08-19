@@ -16,11 +16,11 @@ def load_and_clean_data(filepath: str) -> pd.DataFrame:
 
 def resample_and_impute(df: pd.DataFrame) -> pd.DataFrame:
     df_hourly = df.resample('h').sum(min_count=1)
-    # Conservative over-flag: marks the hour if ANY client in the matrix had a gap
+    # Over-flags: marks the hour if ANY client had a gap, not just the target client
     df_hourly['was_imputed'] = df_hourly.isna().any(axis=1)
-    # FIX: Replaced time-based interpolation with forward fill.
-    # Time interpolation across the global index leaks future values into 
-    # historical training and calibration matrices, violating disjoint set rules.
+    # Forward fill rather than time-based interpolation: interpolation fills a
+    # gap from the values on both sides of it, so a calibration-set hour would
+    # be filled using a value the model has not seen yet at that point in time.
     df_hourly = df_hourly.ffill()
     return df_hourly
 

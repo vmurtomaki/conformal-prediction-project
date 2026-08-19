@@ -1,7 +1,7 @@
 [project]
 name = "conformal-prediction-project"
 version = "0.1.0"
-description = "Enterprise Uncertainty Quantification via Conformal Prediction"
+description = "Distribution-free prediction intervals for volatile time series"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

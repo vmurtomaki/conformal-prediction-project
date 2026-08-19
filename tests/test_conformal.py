@@ -10,8 +10,8 @@ from src.data_processing import apply_synthetic_shock, create_features, resample
 @pytest.fixture
 def mock_time_series() -> pd.DataFrame:
     """
-    Generates a highly localized, deterministic time series dataset to facilitate
-    isolated testing of chronological feature extraction and anomaly injection.
+    A 1000-hour sine series with noise, used to test feature creation and
+    shock injection without touching the real dataset.
     """
     dates = pd.date_range(start="2023-01-01", periods=1000, freq="h")
     values = np.sin(np.linspace(0, 100, 1000)) + np.random.normal(0, 0.1, 1000)
@@ -21,8 +21,9 @@ def mock_time_series() -> pd.DataFrame:
 
 def test_shock_simulator_leakage_prevention(mock_time_series: pd.DataFrame) -> None:
     """
-    Asserts that environmental volatility interventions applied to continuous sequences
-    accurately cascade into autoregressive covariates, neutralizing temporal data leakage.
+    A shock applied to the raw series must also appear in the lag features
+    derived from it. Shocking after feature creation would leave lag_24
+    holding unshocked values, which is leakage of the pre-shock series.
     """
     shock_multiplier = 10.0
 
@@ -36,15 +37,12 @@ def test_shock_simulator_leakage_prevention(mock_time_series: pd.DataFrame) -> N
 
     features = create_features(shocked_df, 'MT_320')
 
-    # Validate spatial completeness post-transformation
-    assert features.isnull().sum().sum() == 0, "Null values found in generated feature matrix."
-
-    # Verify chronological alignment of the injected anomaly
+    # create_features drops NaN rows, so the matrix must be complete
+    assert features.isnull().sum().sum() == 0, "Null values in feature matrix."
+    # The shock day's target must reappear one day later in lag_24
     shock_day_max = features.loc["2023-01-10"]['target'].max()
     lag_day_max = features.loc["2023-01-11"]['lag_24'].max()
-
-    assert shock_day_max == lag_day_max, "Temporal shift failure: Volatility did not propagate to historical covariates."
-
+    assert shock_day_max == lag_day_max, "Shock did not propagate into lag_24."
 
 def test_resample_imputation_detects_and_flags_gaps() -> None:
     """
@@ -66,8 +64,9 @@ def test_resample_imputation_detects_and_flags_gaps() -> None:
 
 def test_aci_bounds_validity_under_high_gamma() -> None:
     """
-    Validates the rigid mathematical bounding mechanisms applied to the ACI sequence.
-    Antagonistic gamma configurations are utilized to force mathematical overflow.
+    A large gamma drives alpha outside [0, 1] within a few updates. The
+    clipping in run_conformal_inference must keep the confidence level valid,
+    so inference completes and lower_bound <= upper_bound holds throughout.
     """
     dates = pd.date_range(start="2023-01-01", periods=300, freq="h")
     X_train = pd.DataFrame({'feature': np.random.randn(300)}, index=dates)
@@ -76,11 +75,10 @@ def test_aci_bounds_validity_under_high_gamma() -> None:
     model = RandomForestRegressor(n_estimators=5, max_depth=3, random_state=42)
     mapie_model = calibrate_mapie_model(model, X_train, y_train, n_blocks=5)
 
-    # Generate highly localized volatility to force massive consecutive miscoverage events
+    # Test targets scaled 500x so nearly every point misses the interval
     X_test = pd.DataFrame({'feature': np.random.randn(100)}, index=dates[:100])
     y_test = pd.Series(np.random.randn(100) * 500, index=dates[:100])
-
-    # Evaluation with antagonistic gamma (0.90) designed to breach standard bounds
+    # gamma = 0.90 pushes alpha out of range within a few updates
     try:
         results = run_conformal_inference(
             working_model=mapie_model,
@@ -91,9 +89,8 @@ def test_aci_bounds_validity_under_high_gamma() -> None:
             step_size=10
         )
     except ValueError as e:
-        pytest.fail(f"API bounds failure: Bounding constraints bypassed resulting in {e!s}")
-
-    assert not results.empty, "Inference returned an empty DataFrame."
+        pytest.fail(f"Alpha was not clipped to a valid confidence level: {e!s}")
+    assert not results.empty, "Inference returned empty array."
 
     invalid_bounds = results[results['lower_bound'] > results['upper_bound']]
     assert len(invalid_bounds) == 0, "Lower bound exceeded upper bound."

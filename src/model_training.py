@@ -16,7 +16,7 @@ def split_time_series(df: pd.DataFrame, train_ratio: float = 0.8):
     return X_train, X_test, y_train, y_test
 
 def train_base_model(X_train: pd.DataFrame, y_train: pd.Series):
-    print("Initializing TimeSeriesSplit cross-validation...")
+    print("Setting up TimeSeriesSplit cross-validation...")
     tscv = TimeSeriesSplit(n_splits=3)
     
     rf = RandomForestRegressor(random_state=42, n_jobs=-1)
@@ -60,4 +60,4 @@ if __name__ == "__main__":
     print(f"Baseline Test MAE (Point Forecast): {mae:.2f}")
     
     joblib.dump(best_model, MODEL_PATH)
-    print(f"Serialized base model saved to {MODEL_PATH}")
+    print(f"Base model saved to {MODEL_PATH}")
