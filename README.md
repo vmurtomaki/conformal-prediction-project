@@ -4,7 +4,7 @@
 
 Distribution-free prediction intervals for volatile time series, with an adaptive layer that recalibrates as the series shifts regime.
 
-![Dashboard Preview](docs/screenshot.png)
+![Dashboard Preview](docs/screenshot_1.png)
 
 ## The problem
 
