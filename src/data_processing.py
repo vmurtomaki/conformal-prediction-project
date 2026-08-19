@@ -15,7 +15,9 @@ def load_and_clean_data(filepath: str) -> pd.DataFrame:
     return df
 
 def resample_and_impute(df: pd.DataFrame) -> pd.DataFrame:
-    df_hourly = df.resample('h').sum()
+    df_hourly = df.resample('h').sum(min_count=1)
+    # Conservative over-flag: marks the hour if ANY client in the matrix had a gap
+    df_hourly['was_imputed'] = df_hourly.isna().any(axis=1)
     # FIX: Replaced time-based interpolation with forward fill.
     # Time interpolation across the global index leaks future values into 
     # historical training and calibration matrices, violating disjoint set rules.
@@ -77,7 +79,8 @@ if __name__ == "__main__":
         processed_df = pd.read_parquet(PROCESSED_PATH)
     
     # 2. Feature Engineering
-    # MT_320 is a highly volatile client, perfect for testing Conformal Prediction
+    # MT_320 is used as a high-volatility stress test / edge case, not a
+    # representative client — results here are a worst-case bound, not a portfolio average.
     ml_df = create_features(processed_df, target_client="MT_320")
     
     # 3. Save final feature matrix

@@ -14,7 +14,7 @@ Two things make that hard. Standard conformal prediction guarantees coverage und
 
 This project wraps any scikit-learn regressor in EnbPI (block-bootstrap conformal, built for sequential data) plus Adaptive Conformal Inference, which adjusts the effective miscoverage rate at every timestep in response to realized coverage. The dashboard lets you inject a synthetic demand shock and watch the bands react.
 
-Data: UCI electricity load (`LD2011_2014`), client MT_320, resampled hourly.
+Data: UCI electricity load (`LD2011_2014`), client MT_320, resampled hourly. MT_320 is used here as a high-volatility stress case, not a representative client — it stresses the interval width and adaptation speed, not average-case performance.
 
 ## Run it
 
@@ -39,11 +39,11 @@ On 1,500 held-out hours at a target of 90% coverage:
 | Static conformal (γ = 0) | 92.7% | baseline |
 | Adaptive (γ = 0.01) | 89.9% | 7.5% narrower |
 
-The static baseline over-covers by 2.7 points. That sounds harmless, but over-coverage is paid for in width — an interval wider than it needs to be is a capacity decision that costs money for no added safety. The adaptive layer tracks the target to within 0.4 points and buys back that width.
+The static baseline over-covers by 2.7 points. That sounds harmless, but over-coverage is paid for in width — an interval wider than it needs to be is a capacity decision that costs money for no added safety. The adaptive layer tracks the target to within 0.1 points and buys back that width.
 
-Gamma isn't free to increase for more reactivity, though: sweeping it against the real dataset shows a stability cliff. Below ~0.03, width reduction is positive and grows as gamma shrinks (10.9% at γ=0.005, 7.5% at γ=0.01). Above ~0.03, the update starts overshooting after miscoverage events — coverage still tracks near the 90% target, but mean width inflates sharply (a γ=0.05 run that looked promising on coverage alone actually produced 47% *wider* intervals than static). γ = 0.01 was chosen as the default after this sweep, trading a slightly lower peak reduction for a stable operating point.
+Gamma isn't free to increase for more reactivity, though: sweeping it against the real dataset shows a stability cliff. Below ~0.03, width reduction is positive and grows as gamma shrinks (10.9% at γ=0.005, 7.5% at γ=0.01). Above ~0.03, the update starts overshooting after miscoverage events — coverage still tracks near the 90% target, but mean width inflates sharply (a γ=0.05 run that looked promising on coverage alone actually produced 47% *wider* intervals than static). γ = 0.01 was chosen as the default after this sweep, trading a slightly lower peak reduction for a stable operating point. This sweep was run against the same 1,500-hour held-out window the results above are reported on, so the reported width reduction is optimistically biased by selection on the test set. A three-way split (train / validation for the γ sweep / test for reported numbers only) is the correct structural fix and the first thing I'd change.
 
-**The bug that made this real.** The first working version applied the ACI update once per 168-hour prediction chunk, using the chunk's aggregate error rate. That is not Adaptive Conformal Inference — it's a coarse approximation of it, and at a step size of 168 the adaptation was roughly two orders of magnitude less reactive than the Gibbs & Candès (2021) formulation intends. Predictions are still batched per chunk for latency, but the alpha update now runs per individual timestep inside each chunk, with a regression test pinning that behavior.
+**The bug that made this real.** The first working version applied the ACI update once per 168-hour prediction chunk, using the chunk's aggregate error rate. That is not Adaptive Conformal Inference — it's a coarse approximation of it, and at a step size of 168 the adaptation was roughly two orders of magnitude less reactive than the Gibbs & Candès (2021) formulation intends. The alpha trajectory now follows Gibbs & Candès exactly. Predictions remain batched per chunk for latency, so the emitted interval width still refreshes once per `step_size` steps — the alpha path is correct, the band resolution is a compute trade-off, and setting `step_size=1` recovers full online behaviour at higher cost.
 
 ## What I'd do differently
 

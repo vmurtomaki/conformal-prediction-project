@@ -4,7 +4,7 @@ import pytest
 from sklearn.ensemble import RandomForestRegressor
 
 from src.conformal_engine import calibrate_mapie_model, run_conformal_inference
-from src.data_processing import apply_synthetic_shock, create_features
+from src.data_processing import apply_synthetic_shock, create_features, resample_and_impute
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_shock_simulator_leakage_prevention(mock_time_series: pd.DataFrame) -> N
     features = create_features(shocked_df, 'MT_320')
 
     # Validate spatial completeness post-transformation
-    assert features.isnull().sum().sum() == 0, "Catastrophic data leakage detected in feature space."
+    assert features.isnull().sum().sum() == 0, "Null values found in generated feature matrix."
 
     # Verify chronological alignment of the injected anomaly
     shock_day_max = features.loc["2023-01-10"]['target'].max()
@@ -46,7 +46,25 @@ def test_shock_simulator_leakage_prevention(mock_time_series: pd.DataFrame) -> N
     assert shock_day_max == lag_day_max, "Temporal shift failure: Volatility did not propagate to historical covariates."
 
 
-def test_aci_mathematical_bounds() -> None:
+def test_resample_imputation_detects_and_flags_gaps() -> None:
+    """
+    Constructs a 2-hour gap in a 30-min series and verifies empty bins become
+    NaN before fill, with was_imputed marking exactly the filled hours.
+    """
+    dates = pd.date_range("2023-01-01", periods=10, freq="30min")
+    df = pd.DataFrame({'MT_320': np.arange(10, dtype=np.float32)}, index=dates)
+    gap_mask = (df.index >= "2023-01-01 02:00:00") & (df.index < "2023-01-01 04:00:00")
+    df = df.loc[~gap_mask]
+    pre_fill = df.resample('h').sum(min_count=1)
+    gap_hours = pd.date_range("2023-01-01 02:00:00", "2023-01-01 03:00:00", freq="h")
+    assert pre_fill.loc[gap_hours, 'MT_320'].isna().all()
+    result = resample_and_impute(df)
+    assert result.loc[gap_hours, 'was_imputed'].all()
+    assert not result.loc[~result.index.isin(gap_hours), 'was_imputed'].any()
+    assert not result.loc[gap_hours, 'MT_320'].isna().any()
+
+
+def test_aci_bounds_validity_under_high_gamma() -> None:
     """
     Validates the rigid mathematical bounding mechanisms applied to the ACI sequence.
     Antagonistic gamma configurations are utilized to force mathematical overflow.
@@ -75,10 +93,10 @@ def test_aci_mathematical_bounds() -> None:
     except ValueError as e:
         pytest.fail(f"API bounds failure: Bounding constraints bypassed resulting in {e!s}")
 
-    assert not results.empty, "Execution failure: Output tensor space is empty."
+    assert not results.empty, "Inference returned an empty DataFrame."
 
     invalid_bounds = results[results['lower_bound'] > results['upper_bound']]
-    assert len(invalid_bounds) == 0, "Topological error: Lower uncertainty limits exceed upper limits."
+    assert len(invalid_bounds) == 0, "Lower bound exceeded upper bound."
 
 
 def test_aci_updates_within_chunk_not_only_between_chunks() -> None:
