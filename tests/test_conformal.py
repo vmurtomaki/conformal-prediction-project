@@ -133,10 +133,9 @@ class _StubModel:
     def __init__(self, lower, upper):
         self._lower = lower
         self._upper = upper
-        self.confidence_levels_used = []
-
-    def predict(self, X_chunk, ensemble, confidence_level, optimize_beta):
-        self.confidence_levels_used.append(confidence_level)
+        self.alphas_used = []
+    def predict(self, X_chunk, ensemble, alpha, optimize_beta):
+        self.alphas_used.append(alpha)
         n = len(X_chunk)
         pis = np.zeros((n, 2, 1))
         pis[:, 0, 0] = self._lower
@@ -180,18 +179,15 @@ def test_aci_updates_per_timestep_not_per_chunk():
     for y in y_chunk1:
         err = 0.0 if -1.0 <= y <= 1.0 else 1.0
         expected_alpha += gamma * (base_alpha - err)
-    expected_conf = float(np.clip(1.0 - np.clip(expected_alpha, 0.01, 0.99), 0.01, 0.99))
-
+    expected_safe_alpha = float(np.clip(expected_alpha, 0.01, 0.99))
     # Wrong: a single update per chunk using the aggregate error rate,
     # with no per-timestep accumulation (missing the factor-of-n reactivity).
     mean_err = np.mean([0.0 if -1.0 <= y <= 1.0 else 1.0 for y in y_chunk1])
     wrong_alpha = base_alpha + gamma * (base_alpha - mean_err)
-    wrong_conf = float(np.clip(1.0 - np.clip(wrong_alpha, 0.01, 0.99), 0.01, 0.99))
-
-    assert expected_conf != pytest.approx(wrong_conf, abs=1e-6), (
+    wrong_safe_alpha = float(np.clip(wrong_alpha, 0.01, 0.99))
+    assert expected_safe_alpha != pytest.approx(wrong_safe_alpha, abs=1e-6), (
         "Test setup error: correct and buggy alpha formulas coincide — "
         "not a valid regression guard."
     )
-
-    second_call_conf = stub.confidence_levels_used[1]
-    assert second_call_conf == pytest.approx(expected_conf, abs=1e-9)
+    second_call_alpha = stub.alphas_used[1]
+    assert second_call_alpha == pytest.approx(expected_safe_alpha, abs=1e-9)
