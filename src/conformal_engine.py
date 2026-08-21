@@ -61,10 +61,12 @@ def run_conformal_inference(
         y_chunk = y_test.iloc[i:i + step_size]
 
         safe_alpha = float(np.clip(current_alpha, 0.01, 0.99))
+        safe_confidence = float(np.clip(1.0 - safe_alpha, 0.01, 0.99))
+
         pred, pis = working_model.predict(
             X_chunk,
             ensemble=True,
-            alpha=safe_alpha,
+            confidence_level=safe_confidence,
             optimize_beta=False
         )
 

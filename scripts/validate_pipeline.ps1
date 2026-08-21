@@ -16,7 +16,8 @@ uv run python -c "from src.config import load_config; print(load_config())"
 # expect: {'alpha': 0.1, 'gamma': 0.01, 'bootstrap_estimators': 30}
 
 # 5. Confirm the per-timestep ACI update behaves sanely on a quick synthetic run
-# (Using PowerShell Here-String piped into Python)
+# (Using PowerShell Here-String piped into Python with UTF-8 encoding)
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 @"
 import numpy as np, pandas as pd
 from sklearn.ensemble import RandomForestRegressor

@@ -2,8 +2,9 @@
 import sys
 from pathlib import Path
 
-# Fix path for 'src' module discovery when running via Streamlit
+# Fix path for 'src' and 'app' module discovery across both Streamlit and direct imports
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+sys.path.append(str(Path(__file__).resolve().parent))
 
 import joblib
 import numpy as np
@@ -35,23 +36,29 @@ def initialize_system(bootstrap_estimators: int):
     bootstrap_estimators, so changing it in the YAML rebuilds the model.
     Returns (calibrated model, raw target series, test-set start timestamp).
     """
-    # 1. Fallback for Data Ingestion on Cold Clones
-    data_path = Path("data/01_raw/LD2011_2014.txt")
-    if not data_path.exists():
-        st.warning("Raw data not found. Using a synthetic demand series so the app runs on a cold clone.")
-        dates = pd.date_range(start="2023-01-01", periods=2000, freq="h")
-        raw_target_series = pd.Series(
-            np.sin(np.linspace(0, 100, 2000)) * 50 + 100 + np.random.normal(0, 5, 2000), 
-            index=dates, 
-            name="MT_320"
-        )
-        processed_df = raw_target_series.to_frame()
+    # 1. Cached feature parquet takes priority to skip expensive raw ingestion entirely
+    cached_features_path = Path("data/02_processed/ml_features_MT_320.parquet")
+    cached_processed_path = Path("data/02_processed/hourly_electricity.parquet")
+    if cached_features_path.exists() and cached_processed_path.exists():
+        df_ml = pd.read_parquet(cached_features_path)
+        raw_target_series = pd.read_parquet(cached_processed_path)['MT_320']
     else:
-        raw_df = load_and_clean_data(str(data_path))
-        processed_df = resample_and_impute(raw_df)
-        raw_target_series = processed_df['MT_320']
-    
-    df_ml = create_features(processed_df, "MT_320")
+        data_path = Path("data/01_raw/LD2011_2014.txt")
+        if not data_path.exists():
+            st.warning("Raw data not found. Using a synthetic demand series so the app runs on a cold clone.")
+            dates = pd.date_range(start="2023-01-01", periods=2000, freq="h")
+            raw_target_series = pd.Series(
+                np.sin(np.linspace(0, 100, 2000)) * 50 + 100 + np.random.normal(0, 5, 2000), 
+                index=dates, 
+                name="MT_320"
+            )
+            processed_df = raw_target_series.to_frame()
+        else:
+            raw_df = load_and_clean_data(str(data_path))
+            processed_df = resample_and_impute(raw_df)
+            raw_target_series = processed_df['MT_320']
+        
+        df_ml = create_features(processed_df, "MT_320")
     train_ratio = 0.8
     split_idx = int(len(df_ml) * train_ratio)
     train = df_ml.iloc[:split_idx]
@@ -92,16 +99,10 @@ def main() -> None:
     # A form defers reruns until submit, so moving a slider doesn't trigger inference
     with st.sidebar.form("conformal_config"):
         st.markdown("**Target miscoverage (alpha)**")
-        alpha_val = st.slider(
-            "Target Miscoverage Rate", min_value=0.01, max_value=0.50, 
-            value=CONFIG["alpha"], step=0.01
-        )
+        st.metric("Target Miscoverage Rate", f"{CONFIG['alpha']:.2f}")
         
         st.markdown("**ACI step size (gamma)**")
-        gamma_val = st.slider(
-            "Adaptive Step Size", min_value=0.00, max_value=0.20, 
-            value=CONFIG["gamma"], step=0.01
-        )
+        st.metric("Adaptive Step Size", f"{CONFIG['gamma']:.2f}")
         
         st.markdown("---")
         st.markdown("**Synthetic demand shock**")
@@ -140,8 +141,8 @@ def main() -> None:
             working_model, 
             X_test, 
             y_test, 
-            base_alpha=alpha_val, 
-            gamma=gamma_val, 
+            base_alpha=CONFIG["alpha"], 
+            gamma=CONFIG["gamma"], 
             step_size=168
         )
 
@@ -152,9 +153,9 @@ def main() -> None:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Target coverage", f"{(1 - alpha_val):.2%}")
+        st.metric("Target coverage", f"{(1 - CONFIG['alpha']):.2%}")
     with col2:
-        delta_cov = empirical_coverage - (1 - alpha_val)
+        delta_cov = empirical_coverage - (1 - CONFIG["alpha"])
         st.metric("Empirical coverage", f"{empirical_coverage:.2%}", f"{delta_cov:+.2%}")
     with col3:
         st.metric("Mean interval width", f"{mean_width:.2f}")

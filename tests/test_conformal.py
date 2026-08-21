@@ -133,9 +133,10 @@ class _StubModel:
     def __init__(self, lower, upper):
         self._lower = lower
         self._upper = upper
-        self.alphas_used = []
-    def predict(self, X_chunk, ensemble, alpha, optimize_beta):
-        self.alphas_used.append(alpha)
+        self.confidence_levels_used = []
+
+    def predict(self, X_chunk, ensemble=True, confidence_level=None, optimize_beta=False):
+        self.confidence_levels_used.append(confidence_level)
         n = len(X_chunk)
         pis = np.zeros((n, 2, 1))
         pis[:, 0, 0] = self._lower
@@ -189,5 +190,6 @@ def test_aci_updates_per_timestep_not_per_chunk():
         "Test setup error: correct and buggy alpha formulas coincide — "
         "not a valid regression guard."
     )
-    second_call_alpha = stub.alphas_used[1]
-    assert second_call_alpha == pytest.approx(expected_safe_alpha, abs=1e-9)
+    second_call_confidence = stub.confidence_levels_used[1]
+    expected_safe_confidence = float(np.clip(1.0 - expected_safe_alpha, 0.01, 0.99))
+    assert second_call_confidence == pytest.approx(expected_safe_confidence, abs=1e-9)

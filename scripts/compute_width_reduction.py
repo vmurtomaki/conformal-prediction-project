@@ -38,8 +38,6 @@ def summarize(gamma):
 static_cov, static_width = summarize(0.0)
 print(f"Static  (gamma=0):    coverage={static_cov:.2%}, width={static_width:.2f}")
 
-gammas = [0.005, 0.01, 0.03, 0.05]
-for g in gammas:
-    cov, width = summarize(g)
-    reduction = (static_width - width) / static_width * 100
-    print(f"Adaptive(gamma={g}): coverage={cov:.2%}, width={width:.2f}, reduction={reduction:.1f}%")
+cov, width = summarize(CONFIG["gamma"])
+reduction = (static_width - width) / static_width * 100
+print(f"Adaptive(gamma={CONFIG['gamma']}): coverage={cov:.2%}, width={width:.2f}, reduction={reduction:.1f}%")
