@@ -37,7 +37,7 @@ def run_conformal_inference(
     y_test: pd.Series,
     base_alpha: float,
     gamma: float,
-    step_size: int = 24
+    step_size: int = 168
 ) -> pd.DataFrame:
     """
     Runs sequential EnbPI inference with an ACI-adjusted alpha.

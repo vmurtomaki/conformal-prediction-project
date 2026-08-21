@@ -32,7 +32,7 @@ model = calibrate_mapie_model(RandomForestRegressor(n_estimators=5, max_depth=3,
 X_test = pd.DataFrame({"f": np.random.randn(60)}, index=dates[:60])
 y_test = pd.Series(np.random.randn(60) * 20, index=dates[:60])
 
-res = run_conformal_inference(model, X_test, y_test, base_alpha=0.10, gamma=0.3, step_size=20)
+res = run_conformal_inference(model, X_test, y_test, base_alpha=0.10, gamma=0.3, step_size=168)
 assert (res["lower_bound"] <= res["upper_bound"]).all()
 print("OK — bounds valid, coverage:", ((res.true_value >= res.lower_bound) & (res.true_value <= res.upper_bound)).mean())
 "@ | uv run python -
